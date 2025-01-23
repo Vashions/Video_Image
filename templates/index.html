@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/png" href="{{ url_for('serve_file', filename='favicon.png') }}">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-T3c6CoIi6uLrA9TneNEoa7RxnatzjcDSCmG1MXxSR1GAsXEV/Dwwykc2MPK8M2HN" crossorigin="anonymous">
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <link rel="stylesheet" href="{{ url_for('serve_css', filename='style.css') }}">
+</head>
+<body onload="selectDesign('NecklaceDesign')">
+  <div class="gradient"></div>
+  <header>
+    <div class="header-content">
+      <img src="{{ url_for('serve_file', filename='vashions.png') }}" alt="Vashions Logo" class="logo">
+      <h1 class="title">Jewellery Virtual Try-On</h1>
+      <button id="contactUsBtn" class="contact-us-btn" onclick="openZohoForm()">Contact Us</button>
+    </div>
+  </header>
+
+  <main>
+    
+    <div class="button-container">
+      <button id="cameraButton">Live Try on</button>
+      <button id="imageTryOnButton">Image Try On</button>
+    </div>
+    
+    <div id="videoContainer" class="hidden">
+      <video id="video" width="960" height="720" autoplay playsinline></video>
+      <img id="processed-video" width="960" height="720" style="display:none;" class="mirror-video">
+    </div>
+    
+    <div class="button-container">
+      <!-- Multi Jewel Toggle Slider with label -->
+      <label class="switch">
+        <input type="checkbox" id="multiJewelToggle" onclick="toggleMultiJewel()">
+        <span class="slider round"></span>
+      </label>
+      <span id="multiJewelLabel" style="margin-left: 10px;">Multi Jewel Try ON</span>
+    
+      <!-- Zoom In Button -->
+      <button id="zoomInButton">Zoom In</button>
+      <button id="takephoto">Take Photo</button>
+    </div>
+    
+    
+    
+    
+
+    <form id="uploadForm" method="post" enctype="multipart/form-data" onsubmit="return uploadAndProcess()">
+      <div class="form-container">
+        <div class="form-row">
+          <input type="file" name="file" id="fileInput">
+          <!-- <select name="design" onchange="showDesign(this.value)">
+            <option value="Necklace">Necklace</option>
+            <option value="Earring">Earring</option>
+            <option value="Bangle">Bangle</option>
+            <option value="Ring">Ring</option>
+          </select> -->
+          <input type="hidden" name="jewelry_path" id="jewelryPathInput">
+          <input type="submit" id="uploadButton" value="Upload & Process">
+          <button type="button" id="downloadButton" onclick="downloadProcessedImage()" style="display: none;">Download</button>
+        </div>
+        
+      </div>
+    
+      <div id="loadingAnimation" class="loading-container hidden">
+        <span class="loader"></span>
+        <p>Processing your image...</p>
+      </div>
+       
+      <div id="processedImageContainer" class="hidden">
+        <h3>Processed Image</h3>
+        <img id="processedImage" alt="Processed Image">
+      </div>      
+    </form>
+    
+    <div class="selected-jewelry-container">
+      <div id="selectedNecklaceDisplay" class="selected-display">
+          <div class="jewelry-header">
+              <h3>Selected Necklace</h3>
+              <button class="unselect-btn" onclick="unselectJewelry('necklace')">×</button>
+          </div>
+          <img id="selectedNecklaceImage" alt="Selected Necklace">
+      </div>
+      
+      <div id="selectedEarringDisplay" class="selected-display">
+          <div class="jewelry-header">
+              <h3>Selected Earring</h3>
+              <button class="unselect-btn" onclick="unselectJewelry('earring')">×</button>
+          </div>
+          <img id="selectedEarringImage" alt="Selected Earring">
+      </div>
+      
+      <div id="selectedBangleDisplay" class="selected-display">
+          <div class="jewelry-header">
+              <h3>Selected Bangle</h3>
+              <button class="unselect-btn" onclick="unselectJewelry('bangle')">×</button>
+          </div>
+          <img id="selectedBangleImage" alt="Selected Bangle">
+      </div>
+      
+      <div id="selectedRingDisplay" class="selected-display">
+          <div class="jewelry-header">
+              <h3>Selected Ring</h3>
+              <button class="unselect-btn" onclick="unselectJewelry('ring')">×</button>
+          </div>
+          <img id="selectedRingImage" alt="Selected Ring">
+      </div>
+  </div>
+  
+    
+    <div class="toggle-container" id="toggleContainer">
+      <button id="necklaceToggle" class="toggle-btn active" onclick="toggleJewelry('NecklaceDesign')">Necklaces</button>
+      <button id="earringToggle" class="toggle-btn" onclick="toggleJewelry('EarringDesign')">Earrings</button>
+      <!-- <button id="bangleToggle" class="toggle-btn" onclick="toggleJewelry('BangleDesign')">Bangles</button> -->
+      <button id="ringToggle" class="toggle-btn" onclick="toggleJewelry('RingDesign')">Rings</button>
+    </div>
+    
+    <div class="content-container">
+      <section id="NecklaceDesign" style="display: block;">
+        <h2>Necklace Design</h2>
+        <div class="gallery-container" id="necklaceContainer">
+          <!-- Necklace items will be dynamically added here -->
+        </div>
+      </section>
+      <section id="EarringDesign" style="display: none;">
+        <h2>Earring Design</h2>
+        <div class="gallery-container" id="earringContainer">
+          <!-- Earring items will be dynamically added here -->
+        </div>
+      </section>
+      <section id="BangleDesign" style="display: none;">
+        <h2>Bangle Design</h2>
+        <div class="gallery-container" id="bangleContainer">
+          <!-- Bangle items will be dynamically added here -->
+        </div>
+      </section>
+      <section id="RingDesign" style="display: none;">
+        <h2>Ring Design</h2>
+        <div class="gallery-container" id="ringContainer">
+          <!-- Ring items will be dynamically added here -->
+        </div>
+      </section>
+    </div>
+    
+    <div id="selectedJewelryDisplay" style="display: none;">
+      <h3>Selected Jewelry</h3>
+      <img id="selectedJewelryImage" alt="Selected Jewelry">
+    </div>
+
+    <button id="backToTopBtn" title="Go to top">↑</button>
+    
+  </main>
+  <script src="{{ url_for('serve_file', filename='app.js') }}"></script>
+
+</body>
+</html>
