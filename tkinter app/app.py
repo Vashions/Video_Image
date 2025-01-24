@@ -44,6 +44,10 @@ class VirtualTryOnApp:
         self.face_bbox_buffer = deque(maxlen=10)
         self.hand_positions = deque(maxlen=5)
         self.upload_counter = 0
+        self.necklace_position_buffer = []
+        self.last_stable_position = None
+        self.position_buffer_size = 5
+        self.movement_threshold = 10
 
     def create_widgets(self):
         # Create a main frame to hold the left and right frames
@@ -467,7 +471,7 @@ class VirtualTryOnApp:
                                 widthC, heightC = int(bboxC.width * iw), int(bboxC.height * ih)
                                 xmaxC, ymaxC = xminC + widthC, yminC + heightC
 
-                                # Enhanced size factors and vertical offsets
+                                # Size factors and offsets
                                 if self.necklace_type == 'large2':
                                     size_factor = 1.2
                                     vertical_offset = -50
@@ -475,67 +479,68 @@ class VirtualTryOnApp:
                                     size_factor = 1.1
                                     vertical_offset = -45
                                 elif self.necklace_type == 'choker':
-                                    size_factor = 0.9
-                                    vertical_offset = -130
+                                    size_factor = 1.0
+                                    vertical_offset = -50
                                 else:  # regular
-                                    size_factor = 0.9
-                                    vertical_offset = -90
+                                    size_factor = 1.0
+                                    vertical_offset = -40
 
                                 shoulder_ymin = ymaxC + (30 if self.necklace_type in ['large', 'large2'] else 15)
                                 chest_ymax = min(ymaxC + (250 if self.necklace_type in ['large', 'large2'] else 200), ih)
                                 
-                                landmarks = self.pose_detection.process(frame_rgb)
-                                if landmarks.pose_landmarks:
-                                    left_shoulder = landmarks.pose_landmarks.landmark[self.mp_pose.PoseLandmark.LEFT_SHOULDER]
-                                    right_shoulder = landmarks.pose_landmarks.landmark[self.mp_pose.PoseLandmark.RIGHT_SHOULDER]
+                                # Calculate current position
+                                mid_shoulder_x = (xminC + xmaxC) // 2
+                                mid_shoulder_y = shoulder_ymin
+                                necklace_width = int((xmaxC - xminC) * 0.8 * size_factor)
+                                necklace_height = int((chest_ymax - shoulder_ymin) * 0.8 * size_factor)
+                                
+                                # Position stabilization
+                                current_position = (mid_shoulder_x, mid_shoulder_y, necklace_width, necklace_height)
+                                self.necklace_position_buffer.append(current_position)
+                                if len(self.necklace_position_buffer) > self.position_buffer_size:
+                                    self.necklace_position_buffer.pop(0)
+                                
+                                # Calculate average position
+                                avg_position = np.mean(self.necklace_position_buffer, axis=0).astype(int)
+                                avg_x, avg_y, avg_width, avg_height = avg_position
+                                avg_y += vertical_offset
+                                
+                                # Check for significant movement
+                                if self.last_stable_position is not None:
+                                    last_x, last_y, _, _ = self.last_stable_position
+                                    movement = np.sqrt((avg_x - last_x)**2 + (avg_y - last_y)**2)
                                     
-                                    shoulder_angle = np.arctan2(right_shoulder.y - left_shoulder.y,
-                                                            abs(right_shoulder.x - left_shoulder.x))
-                                    rotation_angle = np.degrees(shoulder_angle)
+                                    if movement < self.movement_threshold:
+                                        avg_x, avg_y, avg_width, avg_height = self.last_stable_position
+                                    else:
+                                        self.last_stable_position = (avg_x, avg_y, avg_width, avg_height)
+                                else:
+                                    self.last_stable_position = (avg_x, avg_y, avg_width, avg_height)
+                                
+                                # Resize necklace
+                                resized_necklace = cv2.resize(self.necklace_image, (avg_width, avg_height))
+                                flipped_necklace = cv2.flip(resized_necklace, 1)
+                                
+                                # Calculate final placement coordinates
+                                necklace_start_x = max(0, avg_x - avg_width // 2)
+                                necklace_start_y = max(0, avg_y)
+                                necklace_end_x = min(frame.shape[1], necklace_start_x + flipped_necklace.shape[1])
+                                necklace_end_y = min(frame.shape[0], necklace_start_y + flipped_necklace.shape[0])
+                                
+                                # Apply the overlay
+                                region = frame[necklace_start_y:necklace_end_y, necklace_start_x:necklace_end_x]
+                                if region.shape[1] > 0 and region.shape[0] > 0:
+                                    overlay_rgb = flipped_necklace[:, :, :3]
+                                    mask = flipped_necklace[:, :, 3] / 255.0
                                     
-                                    # Increased base size multipliers
-                                    necklace_width = int((xmaxC - xminC) * 1.2 * size_factor)
-                                    necklace_height = int((chest_ymax - shoulder_ymin) * 1.2 * size_factor)
-                                    resized_necklace = cv2.resize(self.necklace_image, (necklace_width, necklace_height))
+                                    resized_mask = cv2.resize(mask, (region.shape[1], region.shape[0]))
+                                    resized_overlay_rgb = cv2.resize(overlay_rgb, (region.shape[1], region.shape[0]))
                                     
-                                    rotated_necklace = self.rotate_image(resized_necklace, rotation_angle)
-                                    flipped_necklace = cv2.flip(rotated_necklace, 1)
+                                    blended = (resized_overlay_rgb * resized_mask[:, :, np.newaxis] +
+                                            region * (1 - resized_mask[:, :, np.newaxis])).astype(np.uint8)
                                     
-                                    face_mesh_results = self.face_mesh.process(frame_rgb)
-                                    if face_mesh_results.multi_face_landmarks:
-                                        face_landmarks = face_mesh_results.multi_face_landmarks[0]
-                                        nose_tip = face_landmarks.landmark[1]
-                                        nose_x, nose_y = int(nose_tip.x * iw), int(nose_tip.y * ih)
-                                        
-                                        mid_shoulder_x = int((left_shoulder.x + right_shoulder.x) * iw / 2)
-                                        mid_shoulder_y = int((left_shoulder.y + right_shoulder.y) * ih / 2)
-                                        
-                                        nose_angle = np.arctan2(nose_y - mid_shoulder_y, nose_x - mid_shoulder_x)
-                                        
-                                        # Adjusted positioning factors
-                                        adjustment_factor = 0.25
-                                        necklace_start_x = max(0, (mid_shoulder_x - flipped_necklace.shape[1] // 2) - 5)
-                                        necklace_start_y = max(0, mid_shoulder_y + vertical_offset)
-                                        
-                                        necklace_start_x += int(np.cos(nose_angle) * adjustment_factor * flipped_necklace.shape[1])
-                                        necklace_start_y += int(np.sin(nose_angle) * adjustment_factor * flipped_necklace.shape[0])
-                                        
-                                        necklace_end_x = min(frame.shape[1], necklace_start_x + flipped_necklace.shape[1])
-                                        necklace_end_y = necklace_start_y + flipped_necklace.shape[0]
-                                        
-                                        region = frame[necklace_start_y:necklace_end_y, necklace_start_x:necklace_end_x]
-                                        if region.shape[1] > 0 and region.shape[0] > 0:
-                                            overlay_rgb = flipped_necklace[:, :, :3]
-                                            mask = flipped_necklace[:, :, 3] / 255.0
-                                            
-                                            resized_mask = cv2.resize(mask, (region.shape[1], region.shape[0]))
-                                            resized_overlay_rgb = cv2.resize(overlay_rgb, (region.shape[1], region.shape[0]))
-                                            
-                                            blended = (resized_overlay_rgb * resized_mask[:, :, np.newaxis] +
-                                                    region * (1 - resized_mask[:, :, np.newaxis])).astype(np.uint8)
-                                            
-                                            frame[necklace_start_y:necklace_end_y, necklace_start_x:necklace_end_x] = blended
-                                    
+                                    frame[necklace_start_y:necklace_end_y, necklace_start_x:necklace_end_x] = blended
+
                     except Exception as e:
                         print(f"Error in necklace processing: {str(e)}")
                         frame = original_frame
